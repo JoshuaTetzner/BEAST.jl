@@ -351,6 +351,74 @@ function assembleblock_body!(biop::IntegralOperator,
     end
 end
 
+
+function assembleblock_body!(biop::IntegralOperator,
+    tfs, test_ids, test_elements, test_assembly_data,
+    bfs, trial_ids, bsis_elements, trial_assembly_data,
+    quadrature_data, zlocals::Channel, store; quadstrat)
+
+    test_shapes = refspace(tfs)
+    trial_shapes = refspace(bfs)
+
+    # Enumerate all the active test elements
+    active_test_el_ids = Vector{Int}()
+    active_trial_el_ids = Vector{Int}()
+
+    test_id_in_blk = Dict{Int,Int}()
+    trial_id_in_blk = Dict{Int,Int}()
+
+    for (i, m) in enumerate(test_ids)
+        test_id_in_blk[m] = i
+    end
+    for (i, m) in enumerate(trial_ids)
+        trial_id_in_blk[m] = i
+    end
+
+    for m in test_ids, sh in tfs.fns[m]
+        push!(active_test_el_ids, sh.cellid)
+    end
+    for m in trial_ids, sh in bfs.fns[m]
+        push!(active_trial_el_ids, sh.cellid)
+    end
+
+    active_test_el_ids = unique!(sort!(active_test_el_ids))
+    active_trial_el_ids = unique!(sort!(active_trial_el_ids))
+
+    @assert length(active_test_el_ids) <= length(test_elements)
+    @assert length(active_trial_el_ids) <= length(bsis_elements)
+
+    @assert maximum(active_test_el_ids) <= length(test_elements) "$(maximum(active_test_el_ids)), $(length(test_elements))"
+    @assert maximum(active_trial_el_ids) <= length(bsis_elements) "$(maximum(active_trial_el_ids)), $(length(bsis_elements))"
+    zlocal = take!(zlocals)
+    for p in active_test_el_ids
+        tcell = test_elements[p]
+        for q in active_trial_el_ids
+            bcell = bsis_elements[q]
+
+            fill!(zlocal, 0)
+            qrule = quadrule(biop, test_shapes, trial_shapes, p, tcell, q, bcell, quadrature_data, quadstrat)
+            momintegrals!(zlocal, biop,
+                tfs, p, tcell,
+                bfs, q, bcell, qrule)
+
+            for j in 1:size(zlocal, 2)
+                for i in 1:size(zlocal, 1)
+                    for (n, b) in trial_assembly_data[q, j]
+                        n′ = get(trial_id_in_blk, n, 0)
+                        n′ == 0 && continue
+                        for (m, a) in test_assembly_data[p, i]
+                            m′ = get(test_id_in_blk, m, 0)
+                            m′ == 0 && continue
+                            store(a * zlocal[i, j] * b, m′, n′)
+                        end
+                    end
+                end
+            end
+        end
+    end
+    put!(zlocals, zlocal)
+end
+
 # function assembleblock_body_trial_refines_test!(biop::IntegralOperator,
 #         tfs, test_ids, test_elements, test_assembly_data,
 #         bfs, trial_ids, bsis_elements, trial_assembly_data,
