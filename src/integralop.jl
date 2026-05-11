@@ -1,7 +1,7 @@
 
 
 defaultquadstrat(op::IntegralOperator, tfs::RefSpace, bfs::RefSpace) =
-    DoubleNumSauterQstrat(2,3,5,5,4,3)
+    DoubleNumSauterQstrat(2, 3, 5, 5, 4, 3)
 
 """
     blockassembler(operator, test_space, trial_space) -> assembler
@@ -57,7 +57,7 @@ Create an iterable collection of the elements stored in `geo`. The order in whic
 this collection produces the elements determines the index used for lookup in the
 data structures returned by `assemblydata` and `quaddata`.
 """
-elements(geo) = [chart(geo,cl) for cl in geo]
+elements(geo) = [chart(geo, cl) for cl in geo]
 
 elements(sp::Space) = elements(geometry(sp))
 
@@ -67,13 +67,15 @@ elements(sp::Space) = elements(geometry(sp))
 Computes the matrix of operator biop wrt the finite element spaces tfs and bfs
 """
 function assemblechunk!(biop::IntegralOperator, tfs::Space, bfs::Space, store;
-        quadstrat=defaultquadstrat(biop, tfs, bfs))
+    quadstrat=defaultquadstrat(biop, tfs, bfs))
 
     numfunctions(tfs) == 0 && return
     numfunctions(bfs) == 0 && return
 
-    tr = assemblydata(tfs); tr == nothing && return
-    br = assemblydata(bfs); br == nothing && return
+    tr = assemblydata(tfs)
+    tr == nothing && return
+    br = assemblydata(bfs)
+    br == nothing && return
 
     test_elements, tad, tcells = tr
     bsis_elements, bad, bcells = br
@@ -84,8 +86,8 @@ function assemblechunk!(biop::IntegralOperator, tfs::Space, bfs::Space, store;
     # tdom = domain(chart(tgeo, first(tgeo)))
     # bdom = domain(chart(bgeo, first(bgeo)))
 
-    tshapes = refspace(tfs); #num_tshapes = numfunctions(tshapes, tdom)
-    bshapes = refspace(bfs); #num_bshapes = numfunctions(bshapes, bdom)
+    tshapes = refspace(tfs) #num_tshapes = numfunctions(tshapes, tdom)
+    bshapes = refspace(bfs) #num_bshapes = numfunctions(bshapes, bdom)
 
     num_tshapes = size(tad.data, 2)
     num_bshapes = size(bad.data, 2)
@@ -97,7 +99,7 @@ function assemblechunk!(biop::IntegralOperator, tfs::Space, bfs::Space, store;
     else
         quadstrat
     end
-    
+
     qd = quaddata(biop, tshapes, bshapes, test_elements, bsis_elements, qs)
     zlocal = zeros(scalartype(biop, tfs, bfs), 2num_tshapes, 2num_bshapes)
     # @show "after" qs
@@ -128,7 +130,7 @@ end
 
     @hilbertspace j[1:2]
     @hilbertspace k[1:2]
-    a = T[k[1],j[1]] + T[k[1],j[2]] + T[k[2],j[2]] + T[k[2],j[1]]
+    a = T[k[1], j[1]] + T[k[1], j[2]] + T[k[2], j[2]] + T[k[2], j[1]]
 
     A = assemble(a, X, X)
     M = AbstractMatrix(A)
@@ -138,8 +140,8 @@ end
 
     @test n2 == 0
 
-    @test BlockArrays.blocksize(M) == (2,2)
-    @test BlockArrays.blocksizes(M) == [(n1,n1) (n1,n2); (n2,n1) (n2,n2)]
+    @test BlockArrays.blocksize(M) == (2, 2)
+    @test BlockArrays.blocksizes(M) == [(n1, n1) (n1, n2); (n2, n1) (n2, n2)]
 end
 
 
@@ -148,8 +150,8 @@ function assemblechunk_body!(biop, test_space, trial_space,
     trial_elements, trial_element_ptrs, trial_assembly_data, active_trial_els,
     qd, zlocal, store; quadstrat, scheduler=:serial)
 
-    num_tshapes = size(test_assembly_data.data,2)
-    num_bshapes = size(trial_assembly_data.data,2)
+    num_tshapes = size(test_assembly_data.data, 2)
+    num_bshapes = size(trial_assembly_data.data, 2)
 
 
     # verbose = (length(test_elements) > 256)
@@ -161,13 +163,13 @@ function assemblechunk_body!(biop, test_space, trial_space,
         @set scheduler = scheduler
         @local begin
             zlocal = zeros(scalartype(biop, test_space, trial_space), num_tshapes, num_bshapes)
-            tadjq = Memory{eltype(trial_assembly_data.data)}(undef, size(trial_assembly_data.data,1))
+            tadjq = Memory{eltype(trial_assembly_data.data)}(undef, size(trial_assembly_data.data, 1))
         end
         P = active_test_els[p]
         tcell = test_elements[P]
         tptr = test_element_ptrs[P]
 
-        for (q,Q) in enumerate(active_trial_els)
+        for (q, Q) in enumerate(active_trial_els)
             bcell = trial_elements[Q]
             bptr = trial_element_ptrs[Q]
 
@@ -175,20 +177,24 @@ function assemblechunk_body!(biop, test_space, trial_space,
             qrule = quadrule(biop, refspace(test_space), refspace(trial_space),
                 P, tcell, Q, bcell, qd, quadstrat)
             momintegrals!(zlocal, biop,
-                test_space,  tptr, tcell, trial_space, bptr, bcell, qrule)
-            for j in 1 : num_bshapes
-                tadjq .= @view trial_assembly_data.data[:,j,q]
+                test_space, tptr, tcell, trial_space, bptr, bcell, qrule)
+            for j in 1:num_bshapes
+                tadjq .= @view trial_assembly_data.data[:, j, q]
                 # tadjq = @view trial_assembly_data.data[:,j,q]
-                for i in 1 : num_tshapes
-                    zij = zlocal[i,j]
-                    badip = @view test_assembly_data.data[:,i,p]
-                    for (n,b) in tadjq
+                for i in 1:num_tshapes
+                    zij = zlocal[i, j]
+                    badip = @view test_assembly_data.data[:, i, p]
+                    for (n, b) in tadjq
                         (n < 1 || iszero(b)) && continue
-                        zb = zij*b
-                        for (m,a) in badip
+                        zb = zij * b
+                        for (m, a) in badip
                             (m < 1 || iszero(a)) && continue
-                            store(a*zb, m, n)
-        end end end end end
+                            store(a * zb, m, n)
+                        end
+                    end
+                end
+            end
+        end
 
         # done += 1
         # new_pctg = round(Int, done / todo * 100)
@@ -219,7 +225,7 @@ end
 #         @set scheduler = scheduler
 #         @local zlocal = zeros(scalartype(biop, test_space, trial_space), num_tshapes, num_bshapes)
 #         tcell, tptr = test_elements[p], test_cell_ptrs[p]
-    
+
 #         for q in trialelementids
 #             bcell, bptr = trial_elements[q], trial_cell_ptrs[q]
 #             fill!(zlocal, 0)
@@ -282,7 +288,7 @@ function (f::AssembleblockbodyFunctor)(testids, trialids, store)
 end
 
 function blockassembler(biop::IntegralOperator, tfs::Space, bfs::Space;
-        quadstrat=defaultquadstrat(biop, tfs, bfs))
+    quadstrat=defaultquadstrat(biop, tfs, bfs))
 
     tgeo = geometry(tfs)
     bgeo = geometry(bfs)
@@ -296,8 +302,8 @@ function blockassembler(biop::IntegralOperator, tfs::Space, bfs::Space;
     end
 
     test_elements, test_assembly_data,
-        trial_elements, trial_assembly_data,
-        quadrature_data, zlocals = assembleblock_primer(biop, tfs, bfs; quadstrat=qs)
+    trial_elements, trial_assembly_data,
+    quadrature_data, zlocals = assembleblock_primer(biop, tfs, bfs; quadstrat=qs)
 
     return AssembleblockbodyFunctor(
         biop,
@@ -363,7 +369,7 @@ end
 
 
 function assembleblock_primer(biop, tfs, bfs;
-        quadstrat=defaultquadstrat(biop, tfs, bfs))
+    quadstrat=defaultquadstrat(biop, tfs, bfs))
 
     test_elements, tad = assemblydata(tfs; onlyactives=false)
     bsis_elements, bad = assemblydata(bfs; onlyactives=false)
@@ -374,12 +380,14 @@ function assembleblock_primer(biop, tfs, bfs;
     tdom = domain(chart(tgeo, first(tgeo)))
     bdom = domain(chart(bgeo, first(bgeo)))
 
-    tshapes = refspace(tfs); num_tshapes = numfunctions(tshapes, tdom)
-    bshapes = refspace(bfs); num_bshapes = numfunctions(bshapes, bdom)
+    tshapes = refspace(tfs)
+    num_tshapes = numfunctions(tshapes, tdom)
+    bshapes = refspace(bfs)
+    num_bshapes = numfunctions(bshapes, bdom)
 
     qd = quaddata(biop, tshapes, bshapes, test_elements, bsis_elements, quadstrat)
 
-    zlocals = Channel{Matrix{scalartype(biop, tfs, bfs)}}(2*Threads.nthreads())
+    zlocals = Channel{Matrix{scalartype(biop, tfs, bfs)}}(2 * Threads.nthreads())
 
     for _ in 1:2*Threads.nthreads()
         put!(zlocals, zeros(scalartype(biop, tfs, bfs), num_tshapes, num_bshapes))
@@ -449,7 +457,7 @@ end
 #                             m′ = get(test_id_in_blk, m, 0)
 #                             m′ == 0 && continue
 #                             store(a*zlocal[i,j]*b, m′, n′)
-#     end end end end end end 
+#     end end end end end end
 #     # put!(zlocals, zlocal)
 # end
 
@@ -608,7 +616,7 @@ end
 
 
 function assemblerow!(biop::IntegralOperator, test_functions::Space, trial_functions::Space, store;
-        quadstrat=defaultquadstrat(biop, test_functions, trial_functions))
+    quadstrat=defaultquadstrat(biop, test_functions, trial_functions))
 
     tgeo = geometry(test_functions)
     bgeo = geometry(trial_functions)
@@ -619,10 +627,10 @@ function assemblerow!(biop::IntegralOperator, test_functions::Space, trial_funct
     test_elements = elements(tgeo)
     trial_elements, trial_assembly_data = assemblydata(trial_functions)
 
-    test_shapes  = refspace(test_functions)
+    test_shapes = refspace(test_functions)
     trial_shapes = refspace(trial_functions)
 
-    num_test_shapes  = numfunctions(test_shapes, tdom)
+    num_test_shapes = numfunctions(test_shapes, tdom)
     num_trial_shapes = numfunctions(trial_shapes, bdom)
 
     quadrature_data = quaddata(biop, test_shapes, trial_shapes, test_elements, trial_elements,
@@ -651,7 +659,7 @@ function assemblerow_body!(biop,
         i = shape.refid
         a = shape.coeff
         tcell = test_elements[p]
-        for (q,bcell) in enumerate(trial_elements)
+        for (q, bcell) in enumerate(trial_elements)
 
             fill!(zlocal, 0)
             qrule = quadrule(biop, test_shapes, trial_shapes, p, tcell, q, bcell, quadrature_data, quadstrat)
@@ -660,22 +668,26 @@ function assemblerow_body!(biop,
                 trial_functions, nothing, bcell,
                 qrule)
 
-            for j in 1:size(zlocal,2)
-                for (n,b) in trial_assembly_data[q,j]
-                    store(a*zlocal[i,j]*b, 1, n)
-end end end end end
+            for j in 1:size(zlocal, 2)
+                for (n, b) in trial_assembly_data[q, j]
+                    store(a * zlocal[i, j] * b, 1, n)
+                end
+            end
+        end
+    end
+end
 
 
 function assemblecol!(biop::IntegralOperator, test_functions::Space, trial_functions::Space, store;
-        quadstrat=defaultquadstrat(biop, test_functions, trial_functions))
+    quadstrat=defaultquadstrat(biop, test_functions, trial_functions))
 
     test_elements, test_assembly_data = assemblydata(test_functions)
     trial_elements = elements(geometry(trial_functions))
 
-    test_shapes  = refspace(test_functions)
+    test_shapes = refspace(test_functions)
     trial_shapes = refspace(trial_functions)
 
-    num_test_shapes  = numfunctions(test_shapes)
+    num_test_shapes = numfunctions(test_shapes)
     num_trial_shapes = numfunctions(trial_shapes)
 
     quadrature_data = quaddata(biop, test_shapes, trial_shapes, test_elements, trial_elements, quadstrat)
@@ -687,8 +699,8 @@ function assemblecol!(biop::IntegralOperator, test_functions::Space, trial_funct
     @assert numfunctions(trial_functions) == 1
 
     assemblecol_body!(biop,
-        test_assembly_data, test_functions, test_elements,  test_shapes,
-        trial_functions,   trial_elements, trial_shapes,
+        test_assembly_data, test_functions, test_elements, test_shapes,
+        trial_functions, trial_elements, trial_shapes,
         zlocal, quadrature_data, store; quadstrat)
 end
 
@@ -705,7 +717,7 @@ function assemblecol_body!(biop,
         b = shape.coeff
 
         bcell = trial_elements[q]
-        for (p,tcell) in enumerate(test_elements)
+        for (p, tcell) in enumerate(test_elements)
 
             fill!(zlocal, 0)
             qrule = quadrule(biop, test_shapes, trial_shapes, p, tcell, q, bcell, quadrature_data, quadstrat)
@@ -713,10 +725,11 @@ function assemblecol_body!(biop,
                 test_functions, nothing, tcell,
                 trial_functions, nothing, bcell, qrule)
 
-            for i in 1:size(zlocal,1)
-                for (m,a) in test_assembly_data[p,i]
-                    store(a*zlocal[i,j]*b, m, 1)
-end end end end end
-
-
-
+            for i in 1:size(zlocal, 1)
+                for (m, a) in test_assembly_data[p, i]
+                    store(a * zlocal[i, j] * b, m, 1)
+                end
+            end
+        end
+    end
+end

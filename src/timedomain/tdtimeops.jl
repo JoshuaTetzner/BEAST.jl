@@ -1,8 +1,8 @@
 
 
 function assemble(op::Identity,
-        testnfs::AbstractTimeBasisFunction,
-        trialfns::AbstractTimeBasisFunction)
+    testnfs::AbstractTimeBasisFunction,
+    trialfns::AbstractTimeBasisFunction)
 
     tbf = convolve(testnfs, trialfns)
     has_zero_tail = all(tbf.polys[end].data .== 0)
@@ -10,7 +10,7 @@ function assemble(op::Identity,
 
     T = scalartype(tbf)
     if has_zero_tail
-        z = zeros(T, numintervals(tbf)-1)
+        z = zeros(T, numintervals(tbf) - 1)
     else
         z = zeros(T, numfunctions(tbf))
     end
@@ -19,14 +19,14 @@ function assemble(op::Identity,
     #for i in eachindex(z)
     for i in 1:numintervals(tbf)-1
         p = tbf.polys[i]
-        t = (i-1)*Δt
-        z[i] = evaluate(p,t)
+        t = (i - 1) * Δt
+        z[i] = evaluate(p, t)
     end
 
     for i in numintervals(tbf):length(z)
         p = tbf.polys[end]
-        t = (i-1)*Δt
-        z[i] = evaluate(p,t)
+        t = (i - 1) * Δt
+        z[i] = evaluate(p, t)
     end
 
     return z
@@ -47,7 +47,7 @@ function scalartype(A::TensorOperator)
 end
 
 function Base.:*(alpha::Number, A::TensorOperator)
-    return TensorOperator(alpha*A.spatial_factor, A.temporal_factor)
+    return TensorOperator(alpha * A.spatial_factor, A.temporal_factor)
 end
 
 
@@ -66,21 +66,21 @@ function allocatestorage(op::TensorOperator, test_functions, trial_functions,
 
     K0 = ones(Int, M, N)
     bandwidth = numintervals(time_basis_function) - 1
-    K1 = ones(Int,M,N) .+ (bandwidth - 1)
-    T  = scalartype(op, test_functions, trial_functions)
+    K1 = ones(Int, M, N) .+ (bandwidth - 1)
+    T = scalartype(op, test_functions, trial_functions)
     data = zeros(T, bandwidth, M, N)
     tail = zeros(T, M, N)
 
     Nt = numfunctions(temporalbasis(trial_functions))
     Z = ConvolutionOperators.ConvOp(data, K0, K1, tail, bandwidth)
-    function store1(v,m,n,k)
-		if Z.k0[m,n] ≤ k ≤ Z.k1[m,n]
-			Z.data[k - Z.k0[m,n] + 1,m,n] += v
-		elseif k == Z.k1[m,n]+1
-			Z.tail[m,n] += v
-		end
-	end
-    return ()->Z, store1
+    function store1(v, m, n, k)
+        if Z.k0[m, n] ≤ k ≤ Z.k1[m, n]
+            Z.data[k-Z.k0[m, n]+1, m, n] += v
+        elseif k == Z.k1[m, n] + 1
+            Z.tail[m, n] += v
+        end
+    end
+    return () -> Z, store1
 end
 
 
@@ -90,7 +90,7 @@ function assemble!(operator::TensorOperator, testfns::SpaceTimeBasis, trialfns::
     quadstrat=defaultquadstrat(operator, testfns, trialfns))
 
     space_operator = operator.spatial_factor
-    time_operator  = operator.temporal_factor
+    time_operator = operator.temporal_factor
 
     space_testfns = spatialbasis(testfns)
     space_trialfns = spatialbasis(trialfns)
@@ -109,14 +109,14 @@ function assemble!(operator::TensorOperator, testfns::SpaceTimeBasis, trialfns::
         Δt = timestep(tbf)
         ct, hs = boundingbox(geometry(space_trialfns).vertices)
         diam = 2 * sqrt(3) * hs
-        kmax = ceil(Int, (numintervals(tbf)-1) + diam/speedoflight/Δt)+1
+        kmax = ceil(Int, (numintervals(tbf) - 1) + diam / speedoflight / Δt) + 1
         zt = zt[1:kmax]
     end
 
 
-    function store1(v,m,n)
-        for (k,w) in enumerate(zt)
-            store(w*v,m,n,k)
+    function store1(v, m, n)
+        for (k, w) in enumerate(zt)
+            store(w * v, m, n, k)
         end
     end
     assemble!(space_operator, space_testfns, space_trialfns,
@@ -137,12 +137,12 @@ Base.:*(a::Number, op::TemporalDifferentiation) = TemporalDifferentiation(a * op
 defaultquadstrat(op::TemporalDifferentiation, tfs, bfs) = defaultquadstrat(op.operator, tfs, bfs)
 
 function allocatestorage(op::TemporalDifferentiation, testfns, trialfns,
-	storage_trait, longdelays_trait)
+    storage_trait, longdelays_trait)
 
-	trial_time_fns  = temporalbasis(trialfns)
-	trial_space_fns = spatialbasis(trialfns)
+    trial_time_fns = temporalbasis(trialfns)
+    trial_space_fns = spatialbasis(trialfns)
 
-    test_time_fns  = temporalbasis(testfns)
+    test_time_fns = temporalbasis(testfns)
     test_space_fns = spatialbasis(testfns)
 
     Δt = timestep(trial_time_fns)
@@ -153,21 +153,21 @@ function allocatestorage(op::TemporalDifferentiation, testfns, trialfns,
         TimeBasisDelta(Δt, Nₜ)
     )
 
-	trialfns = SpaceTimeBasis(
-		trial_space_fns,
-		derive(convolve(test_time_fns, trial_time_fns))
-	)
+    trialfns = SpaceTimeBasis(
+        trial_space_fns,
+        derive(convolve(test_time_fns, trial_time_fns))
+    )
 
     return allocatestorage(op.operator, testfns, trialfns, storage_trait, longdelays_trait)
 end
 
-function assemble!(operator::TemporalDifferentiation, testfns, trialfns, store, threading = Threading{:multi};
+function assemble!(operator::TemporalDifferentiation, testfns, trialfns, store, threading=Threading{:multi};
     quadstrat=defaultquadstrat(operator, testfns, trialfns))
 
-    trial_time_fns  = temporalbasis(trialfns)
+    trial_time_fns = temporalbasis(trialfns)
     trial_space_fns = spatialbasis(trialfns)
 
-    test_time_fns  = temporalbasis(testfns)
+    test_time_fns = temporalbasis(testfns)
     test_space_fns = spatialbasis(testfns)
 
     Δt = timestep(trial_time_fns)
@@ -178,10 +178,10 @@ function assemble!(operator::TemporalDifferentiation, testfns, trialfns, store, 
         TimeBasisDelta(Δt, Nₜ)
     )
 
-	trialfns = SpaceTimeBasis(
-		trial_space_fns,
-		derive(convolve(test_time_fns, trial_time_fns))
-	)
+    trialfns = SpaceTimeBasis(
+        trial_space_fns,
+        derive(convolve(test_time_fns, trial_time_fns))
+    )
 
     assemble!(operator.operator, testfns, trialfns, store, threading; quadstrat)
 
@@ -199,23 +199,23 @@ scalartype(op::TemporalIntegration) = scalartype(op.operator)
 Base.:*(a::Number, op::TemporalIntegration) = TemporalIntegration(a * op.operator)
 
 function allocatestorage(op::TemporalIntegration, testfns, trialfns,
-	storage_trait::Type{Val{S}}, longdelays_trait) where {S}
+    storage_trait::Type{Val{S}}, longdelays_trait) where {S}
 
-	trial_time_fns  = temporalbasis(trialfns)
-	trial_space_fns = spatialbasis(trialfns)
+    trial_time_fns = temporalbasis(trialfns)
+    trial_space_fns = spatialbasis(trialfns)
 
-	trialfns = SpaceTimeBasis(
-		trial_space_fns,
-		integrate(trial_time_fns)
-	)
+    trialfns = SpaceTimeBasis(
+        trial_space_fns,
+        integrate(trial_time_fns)
+    )
 
-	return allocatestorage(op.operator, testfns, trialfns, storage_trait, longdelays_trait)
+    return allocatestorage(op.operator, testfns, trialfns, storage_trait, longdelays_trait)
 end
 
 function assemble!(operator::TemporalIntegration, testfns, trialfns, store,
-    threading = Threading{:multi}; quadstrat=defaultquadstrat(operator, testfns, trialfns))
+    threading=Threading{:multi}; quadstrat=defaultquadstrat(operator, testfns, trialfns))
 
-    trial_time_fns  = temporalbasis(trialfns)
+    trial_time_fns = temporalbasis(trialfns)
     trial_space_fns = spatialbasis(trialfns)
 
     trialfns = SpaceTimeBasis(

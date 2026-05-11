@@ -38,14 +38,15 @@ TestItems = "1c621080-faea-4a02-84b6-bbd5e436b8fe"
 WiltonInts84 = "a3e2863e-c0ee-5ff6-a523-307a4cdc8724"
 
 [weakdeps]
-PlotlyJS = "f0f68f2c-4968-5e81-91da-67840de0976a"
+CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
 
 [extensions]
-PlotlyJSExt = ["PlotlyJS"]
+BEASTCUDAExt = "CUDA"
 
 [compat]
 AbstractTrees = "0.4.4"
 BlockArrays = "1"
+CUDA = "5.10.1"
 CollisionDetection = "0.1.7"
 Combinatorics = "0.7, 1"
 CompScienceMeshes = "0.11"

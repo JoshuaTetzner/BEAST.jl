@@ -25,6 +25,7 @@ end
 function LagrangeBasis{D,C,N}(mesh::M, fns::Vector{Vector{Shape{T}}}, pos::Vector{P}) where {P,T,M,N,C,D}
     LagrangeBasis{D,C,M,T,N,P}(mesh, fns, pos)
 end
+Base.similar(space::LagrangeBasis{D,C,M,T,NF,P}, geo, fns, pos)  where {D,C,M,T,NF,P} = LagrangeBasis{D,C,NF}(geo, fns, pos)
 
 refspace(space::LagrangeBasis{D,C,M,T,NF}) where {D,C,M,T,NF} = LagrangeRefSpace{T,D,dimension(geometry(space))+1,NF}()
 subset(s::S,I) where {S <: Space} = S(s.geo, s.fns[I], s.pos[I])
