@@ -225,6 +225,75 @@ end end end end end end end
 #                         store(a*zb, m, n)
 # end end end end end end end
 
+mutable struct ReducedDataCache{T}
+    ids::Vector{Int}
+    els::Vector{Int}
+    ad::AssemblyData{T}
+end
+emptycache(T) = ReducedDataCache(Int[], Int[], AssemblyData(Array{Tuple{Int,T}}(undef,0,0,0)))
+adscalartype(::AssemblyData{T}) where {T} = T
+
+function dedupsorted!(v::AbstractVector)
+    isempty(v) && return v
+    w = 1
+    @inbounds for r in 2:length(v)
+        if v[r] != v[w]
+            w += 1
+            v[w] = v[r]
+        end
+    end
+    resize!(v, w)
+    return v
+end
+
+mutable struct ReducedDataLRU{T}
+    a::ReducedDataCache{T}
+    b::ReducedDataCache{T}
+    ahit::Bool
+    lookup::Vector{Int}
+end
+emptylru(T, nfns::Int) = ReducedDataLRU(emptycache(T), emptycache(T), true, zeros(Int, nfns))
+
+function fetchreduced!(lru::ReducedDataLRU, ids, ad, fns)
+    if lru.a.ids == ids
+        lru.ahit = true
+        return lru.a.els, lru.a.ad
+    elseif lru.b.ids == ids
+        lru.ahit = false
+        return lru.b.els, lru.b.ad
+    end
+    victim = lru.ahit ? lru.b : lru.a
+
+    vids = victim.ids
+    empty!(vids)
+    for m in ids
+        push!(vids, m)
+    end
+
+    els = victim.els
+    empty!(els)
+    for m in vids
+        for sh in fns[m]
+            push!(els, sh.cellid)
+        end
+    end
+    dedupsorted!(sort!(els))
+
+    d1, d2 = size(ad.data, 1), size(ad.data, 2)
+    if size(victim.ad.data) != (d1, d2, length(els))
+        victim.ad = AssemblyData(Array{eltype(ad.data),3}(undef, d1, d2, length(els)))
+    end
+    reduce_assembly_data!(victim.ad.data, ad, vids, els, lru.lookup)
+
+    lru.ahit = !lru.ahit
+    return victim.els, victim.ad
+end
+
+mutable struct BlockAssemblyCache{LT,LB}
+    testlru::ReducedDataLRU{LT}
+    triallru::ReducedDataLRU{LB}
+end
+
 struct AssembleblockbodyFunctor{B,T1,T2,T3,T4,T5,T6,T7,T8,T9}
     biop::B
     tfs::T1
@@ -236,20 +305,42 @@ struct AssembleblockbodyFunctor{B,T1,T2,T3,T4,T5,T6,T7,T8,T9}
     quadraturedata::T7
     zlocals::T8
     quadstrat::T9
+    cachekey::Symbol
+end
+
+function blockassemblycache(f::AssembleblockbodyFunctor)
+    tad = f.testassemblydata
+    bad = f.trialassemblydata
+    Ttest, Ttrial = adscalartype(tad), adscalartype(bad)
+    return BlockAssemblyCache(
+        emptylru(Ttest, numfunctions(f.tfs)),
+        emptylru(Ttrial, numfunctions(f.bfs)),
+    )
 end
 
 function (f::AssembleblockbodyFunctor)(testids, trialids, store)
+    tls = task_local_storage()
+    c = get(tls, f.cachekey, nothing)
+    if c === nothing
+        c = blockassemblycache(f)
+        tls[f.cachekey] = c
+    end
+    Ttest = adscalartype(f.testassemblydata)
+    Ttrial = adscalartype(f.trialassemblydata)
+    cache = c::BlockAssemblyCache{Ttest,Ttrial}
+    return assembleblock!(f, cache, testids, trialids, store)
+end
+
+function assembleblock!(f::AssembleblockbodyFunctor, cache::C,
+        testids, trialids, store::S) where {C<:BlockAssemblyCache,S}
 
     tad = f.testassemblydata
     bad = f.trialassemblydata
 
     # The following code assumed that the testelements cache was build for
     # all the elements in geoemtry(tfs). Similar for the trial side.
-    active_test_els = unique!(sort!(collect(sh.cellid for m in testids for sh in f.tfs.fns[m])))
-    active_trial_els = unique!(sort!(collect(sh.cellid for m in trialids for sh in f.bfs.fns[m])))
-
-    tad1 = reduce_assembly_data(tad, testids, active_test_els)
-    bad1 = reduce_assembly_data(bad, trialids, active_trial_els)
+    active_test_els, tad1 = fetchreduced!(cache.testlru, testids, tad, f.tfs.fns)
+    active_trial_els, bad1 = fetchreduced!(cache.triallru, trialids, bad, f.bfs.fns)
 
     test_element_ptrs = eachindex(f.testelements)
     trial_element_ptrs = eachindex(f.trialelements)
@@ -293,6 +384,7 @@ function blockassembler(biop::IntegralOperator, tfs::Space, bfs::Space;
         quadrature_data,
         zlocals,
         qs,
+        gensym(:assembleblockbody),
     )
 
     # if CompScienceMeshes.refines(tgeo, bgeo)
@@ -700,6 +792,5 @@ function assemblecol_body!(biop,
                 for (m,a) in test_assembly_data[p,i]
                     store(a*zlocal[i,j]*b, m, 1)
 end end end end end
-
 
 

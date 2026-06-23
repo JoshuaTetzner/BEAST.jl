@@ -483,17 +483,21 @@ end
 end
 
 
-function reduce_assembly_data(ad, active_dofs, active_els)
-    data = ad.data
-    num_shapes = size(data, 2)
-    ad1 = data[:,:,active_els]
-    dof_mapper = Dict((m,m1) for (m1,m) in enumerate(active_dofs))
-    for i in eachindex(active_els)
+function reduce_assembly_data!(dest, ad, active_dofs, active_els, lookup::Vector{Int})
+    src = ad.data
+    num_shapes = size(src, 2)
+    num_funcs = size(src, 1)
+    @inbounds for (i,m) in enumerate(active_dofs)
+        lookup[m] = i
+    end
+    @inbounds for (c,el) in enumerate(active_els)
         for j in 1:num_shapes
-            for k in 1:size(ad1,1)
-                (m,a) = ad1[k,j,i]
-                m1 = get(dof_mapper, m, 0)
-                ad1[k,j,i] = (m1, a)
+            for k in 1:num_funcs
+                (m,a) = src[k,j,el]
+                dest[k,j,c] = (m < 1 ? 0 : lookup[m], a)
     end end end
-    return AssemblyData(ad1)
+    @inbounds for m in active_dofs
+        lookup[m] = 0
+    end
+    return dest
 end
