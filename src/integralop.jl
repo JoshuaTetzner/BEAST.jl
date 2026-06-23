@@ -97,7 +97,7 @@ function assemblechunk!(biop::IntegralOperator, tfs::Space, bfs::Space, store;
     else
         quadstrat
     end
-    
+
     qd = quaddata(biop, tshapes, bshapes, test_elements, bsis_elements, qs)
     zlocal = zeros(scalartype(biop, tfs, bfs), 2num_tshapes, 2num_bshapes)
     # @show "after" qs
@@ -202,7 +202,7 @@ end end end end end end end
 #         @set scheduler = scheduler
 #         @local zlocal = zeros(scalartype(biop, test_space, trial_space), num_tshapes, num_bshapes)
 #         tcell, tptr = test_elements[p], test_cell_ptrs[p]
-    
+
 #         for q in trialelementids
 #             bcell, bptr = trial_elements[q], trial_cell_ptrs[q]
 #             fill!(zlocal, 0)
@@ -225,11 +225,19 @@ end end end end end end end
 #                         store(a*zb, m, n)
 # end end end end end end end
 
+"""
+    ReducedDataCache
+
+Reduced assembly data for one requested index set.
+Stores the original dof ids, the active elements they touch, and the reduced
+assembly data with dofs reindexed locally.
+"""
 mutable struct ReducedDataCache{T}
     ids::Vector{Int}
     els::Vector{Int}
     ad::AssemblyData{T}
 end
+
 emptycache(T) = ReducedDataCache(Int[], Int[], AssemblyData(Array{Tuple{Int,T}}(undef,0,0,0)))
 adscalartype(::AssemblyData{T}) where {T} = T
 
@@ -246,14 +254,29 @@ function dedupsorted!(v::AbstractVector)
     return v
 end
 
+"""
+    ReducedDataLRU
+
+Two-slot cache for reduced assembly data on one side of a block assembly.
+The two slots cover the case where one index set is reused while the
+other side changes between calls.
+"""
 mutable struct ReducedDataLRU{T}
     a::ReducedDataCache{T}
     b::ReducedDataCache{T}
     ahit::Bool
     lookup::Vector{Int}
 end
+
 emptylru(T, nfns::Int) = ReducedDataLRU(emptycache(T), emptycache(T), true, zeros(Int, nfns))
 
+"""
+    fetchreduced!(lru, ids, ad, fns)
+
+Return reduced assembly data for `ids`, reusing a cached entry on a hit.
+On a miss, reuse the least recently used slot's buffers and rebuild the active
+element list and reduced `AssemblyData`.
+"""
 function fetchreduced!(lru::ReducedDataLRU, ids, ad, fns)
     if lru.a.ids == ids
         lru.ahit = true
@@ -289,6 +312,13 @@ function fetchreduced!(lru::ReducedDataLRU, ids, ad, fns)
     return victim.els, victim.ad
 end
 
+"""
+    BlockAssemblyCache
+
+Reduced-data caches for test and trial ids.
+Instances are stored in task-local storage so concurrent tasks do not share
+mutable cache state.
+"""
 mutable struct BlockAssemblyCache{LT,LB}
     testlru::ReducedDataLRU{LT}
     triallru::ReducedDataLRU{LB}
@@ -318,6 +348,13 @@ function blockassemblycache(f::AssembleblockbodyFunctor)
     )
 end
 
+"""
+    f(testids, trialids, store)
+
+Assemble one block using a task-local cache keyed to this blockassembler.
+The cache key is unique per blockassembler instance, avoiding collisions with
+other block assemblers used by the same task.
+"""
 function (f::AssembleblockbodyFunctor)(testids, trialids, store)
     tls = task_local_storage()
     c = get(tls, f.cachekey, nothing)
@@ -331,6 +368,13 @@ function (f::AssembleblockbodyFunctor)(testids, trialids, store)
     return assembleblock!(f, cache, testids, trialids, store)
 end
 
+"""
+    assembleblock!(f, cache, testids, trialids, store)
+
+Assemble one block using cached reduced assembly data.
+The numerical integration path is unchanged; only the reduction of requested
+dof ids to active elements and local assembly data is cached.
+"""
 function assembleblock!(f::AssembleblockbodyFunctor, cache::C,
         testids, trialids, store::S) where {C<:BlockAssemblyCache,S}
 
@@ -524,7 +568,7 @@ end
 #                             m′ = get(test_id_in_blk, m, 0)
 #                             m′ == 0 && continue
 #                             store(a*zlocal[i,j]*b, m′, n′)
-#     end end end end end end 
+#     end end end end end end
 #     # put!(zlocals, zlocal)
 # end
 
@@ -792,5 +836,3 @@ function assemblecol_body!(biop,
                 for (m,a) in test_assembly_data[p,i]
                     store(a*zlocal[i,j]*b, m, 1)
 end end end end end
-
-

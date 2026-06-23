@@ -215,7 +215,7 @@ Here, `c` and `r` are indices in the iterable set of (active) simplices and the
 set of shape functions on each cell/simplex: `r` ranges from 1 to the number of
 shape functions on a cell/simplex, `c` ranges from 1 to the number of active
 simplices, and `i` ranges from 1 to the number of maximal number of basis functions,
-where any of the shape functions contributes to. 
+where any of the shape functions contributes to.
 
 For example, for continuous piecewise linear lagrange functions (c0d1), each of the
 three shape functions on a triangle are associated with exactly one Lagrange function,
@@ -242,7 +242,7 @@ function assemblydata(basis::Space; onlyactives=true)
     num_cells = numcells(geo)
 
     num_bfs  = numfunctions(basis)
-    
+
     ch = chart(geo, first(geo))
     dom = domain(ch)
     num_refs = numfunctions(refspace(basis), dom)
@@ -254,7 +254,7 @@ function assemblydata(basis::Space; onlyactives=true)
     # In general, a basis function space might only be defined
     # over a small portion of the underlying mesh. To avoid
     # the inefficient iterating of cells, which are not in the support of
-    # any of the basis functions, we filter out only those cells, over 
+    # any of the basis functions, we filter out only those cells, over
     # which at least one basis function is defined.
     if onlyactives
         active, index_among_actives, num_active_cells, act_to_global =
@@ -408,7 +408,7 @@ function functionvals(s::BEAST.Space, index::Int, n=3)
     s1 = subset(s,[index])
     charts, ad, a2g = BEAST.assemblydata(s1)
     support = geometry(s)[a2g]
-    
+
     vals = Any[]
     ctrs = Any[]
     refs = refspace(s)
@@ -470,7 +470,7 @@ end
 
 @testitem "union of spaces" begin
     using CompScienceMeshes
-   
+
     m1 = meshrectangle(1.0, 1.0, 1.0, 3)
     bnd_edges = boundary(m1)
     int_edges = setminus(skeleton(m1, 1), bnd_edges)
@@ -483,17 +483,24 @@ end
 end
 
 
+"""
+    reduce_assembly_data!(dest, ad, active_dofs, active_els, lookup)
+
+Write reduced assembly data into caller-owned storage using `lookup` as scratch.
+Entries are reindexed from global dof ids to positions in `active_dofs`;
+`lookup` is reset before returning.
+"""
 function reduce_assembly_data!(dest, ad, active_dofs, active_els, lookup::Vector{Int})
-    src = ad.data
-    num_shapes = size(src, 2)
-    num_funcs = size(src, 1)
+    data = ad.data
+    num_shapes = size(data, 2)
+    num_funcs = size(data, 1)
     @inbounds for (i,m) in enumerate(active_dofs)
         lookup[m] = i
     end
     @inbounds for (c,el) in enumerate(active_els)
         for j in 1:num_shapes
             for k in 1:num_funcs
-                (m,a) = src[k,j,el]
+                (m,a) = data[k,j,el]
                 dest[k,j,c] = (m < 1 ? 0 : lookup[m], a)
     end end end
     @inbounds for m in active_dofs
