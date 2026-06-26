@@ -231,10 +231,11 @@ end
 # Double Num Quadrature
 #============================================================#
 
-function gpu_momintegral_doublenum_pair!(zlocal, biop, pair, test_els, trial_els, test_shapes, trial_shapes, test_refspace, trial_refspace, qrule_d)
+function gpu_momintegral_doublenum_pair!(zlocal, biop, pair, test_els, trial_els, test_shapes, trial_shapes, test_refspace, trial_refspace, test_qrule_d, trial_qrule_d)
     rows = length(test_els)
 
-    npts = length(qrule_d)
+    npts_test = length(test_qrule_d)
+    npts_trial = length(trial_qrule_d)
 
     i = mod(pair - 1, rows) + 1
     j = div(pair - 1, rows) + 1
@@ -252,14 +253,14 @@ function gpu_momintegral_doublenum_pair!(zlocal, biop, pair, test_els, trial_els
 
     T = eltype(zlocal)
     z = zeros(StaticArrays.SMatrix{numshapes_test,numshapes_trial,T})
-    for l in 1:npts
-        px = qrule_d[l][1]
+    for l in 1:npts_test
+        px = test_qrule_d[l][1]
         x = neighborhood(el_test, px)
-        wx = qrule_d[l][2] * jacobian(x)
-        for m in 1:npts
-            py = qrule_d[m][1]
+        wx = test_qrule_d[l][2] * jacobian(x)
+        for m in 1:npts_trial
+            py = trial_qrule_d[m][1]
             y = neighborhood(el_trial, py)
-            wy = qrule_d[m][2] * jacobian(y)
+            wy = trial_qrule_d[m][2] * jacobian(y)
 
             @inbounds z += wx * wy * igd(x, y, shape_test[l], shape_trial[m])
         end
@@ -269,7 +270,7 @@ function gpu_momintegral_doublenum_pair!(zlocal, biop, pair, test_els, trial_els
     return nothing
 end
 
-function gpu_momintegral_doublenum_pair_indexed!(zlocal, biop, pair, test_els, test_ids_d, trial_els, trial_ids_d, test_shapes, trial_shapes, test_refspace, trial_refspace, qrule_d)
+function gpu_momintegral_doublenum_pair_indexed!(zlocal, biop, pair, test_els, test_ids_d, trial_els, trial_ids_d, test_shapes, trial_shapes, test_refspace, trial_refspace, test_qrule_d, trial_qrule_d)
     rows = length(test_ids_d)
 
     active_i = mod(pair - 1, rows) + 1
@@ -277,7 +278,8 @@ function gpu_momintegral_doublenum_pair_indexed!(zlocal, biop, pair, test_els, t
     i = test_ids_d[active_i]
     j = trial_ids_d[active_j]
 
-    npts = length(qrule_d)
+    npts_test = length(test_qrule_d)
+    npts_trial = length(trial_qrule_d)
 
     el_test = test_els[i]
     el_trial = trial_els[j]
@@ -292,14 +294,14 @@ function gpu_momintegral_doublenum_pair_indexed!(zlocal, biop, pair, test_els, t
 
     T = eltype(zlocal)
     z = zeros(StaticArrays.SMatrix{numshapes_test,numshapes_trial,T})
-    for l in 1:npts
-        px = qrule_d[l][1]
+    for l in 1:npts_test
+        px = test_qrule_d[l][1]
         x = neighborhood(el_test, px)
-        wx = qrule_d[l][2] * jacobian(x)
-        for m in 1:npts
-            py = qrule_d[m][1]
+        wx = test_qrule_d[l][2] * jacobian(x)
+        for m in 1:npts_trial
+            py = trial_qrule_d[m][1]
             y = neighborhood(el_trial, py)
-            wy = qrule_d[m][2] * jacobian(y)
+            wy = trial_qrule_d[m][2] * jacobian(y)
             @inbounds z += wx * wy * igd(x, y, shape_test[l], shape_trial[m])
         end
     end
@@ -310,49 +312,37 @@ function gpu_momintegral_doublenum_pair_indexed!(zlocal, biop, pair, test_els, t
     return nothing
 end
 
-function gpu_momintegral_doublenum!(zlocal, biop, npairs, elpairs, test_els, trial_els, test_shapes, trial_shapes, test_refspace, trial_refspace, qrule_d)
+function gpu_momintegral_doublenum!(zlocal, biop, npairs, elpairs, test_els, trial_els, test_shapes, trial_shapes, test_refspace, trial_refspace, test_qrule_d, trial_qrule_d)
     glb_idx = (blockIdx().x - 1) * blockDim().x + threadIdx().x
 
     if glb_idx <= npairs
         gpu_momintegral_doublenum_pair!(
             zlocal, biop, elpairs[glb_idx], test_els, trial_els,
-            test_shapes, trial_shapes, test_refspace, trial_refspace, qrule_d)
+            test_shapes, trial_shapes, test_refspace, trial_refspace, test_qrule_d, trial_qrule_d)
     end
 
     return nothing
 end
 
-function gpu_momintegral_doublenum_indexed!(zlocal, biop, npairs, elpairs, test_els, test_ids_d, trial_els, trial_ids_d, test_shapes, trial_shapes, test_refspace, trial_refspace, qrule_d)
+function gpu_momintegral_doublenum_indexed!(zlocal, biop, npairs, elpairs, test_els, test_ids_d, trial_els, trial_ids_d, test_shapes, trial_shapes, test_refspace, trial_refspace, test_qrule_d, trial_qrule_d)
     glb_idx = (blockIdx().x - 1) * blockDim().x + threadIdx().x
 
     if glb_idx <= npairs
         gpu_momintegral_doublenum_pair_indexed!(
             zlocal, biop, elpairs[glb_idx], test_els, test_ids_d, trial_els, trial_ids_d,
-            test_shapes, trial_shapes, test_refspace, trial_refspace, qrule_d)
+            test_shapes, trial_shapes, test_refspace, trial_refspace, test_qrule_d, trial_qrule_d)
     end
 
     return nothing
 end
 
-function gpu_momintegral_doublenum_allpairs!(zlocal, biop, npairs, test_els, trial_els, test_shapes, trial_shapes, test_refspace, trial_refspace, qrule_d)
-    glb_idx = (blockIdx().x - 1) * blockDim().x + threadIdx().x
-
-    if glb_idx <= npairs
-        gpu_momintegral_doublenum_pair!(
-            zlocal, biop, glb_idx, test_els, trial_els,
-            test_shapes, trial_shapes, test_refspace, trial_refspace, qrule_d)
-    end
-
-    return nothing
-end
-
-function gpu_momintegral_doublenum_allpairs_indexed!(zlocal, biop, npairs, test_els, test_ids_d, trial_els, trial_ids_d, test_shapes, trial_shapes, test_refspace, trial_refspace, qrule_d)
+function gpu_momintegral_doublenum_allpairs_indexed!(zlocal, biop, npairs, test_els, test_ids_d, trial_els, trial_ids_d, test_shapes, trial_shapes, test_refspace, trial_refspace, test_qrule_d, trial_qrule_d)
     glb_idx = (blockIdx().x - 1) * blockDim().x + threadIdx().x
 
     if glb_idx <= npairs
         gpu_momintegral_doublenum_pair_indexed!(
             zlocal, biop, glb_idx, test_els, test_ids_d, trial_els, trial_ids_d,
-            test_shapes, trial_shapes, test_refspace, trial_refspace, qrule_d)
+            test_shapes, trial_shapes, test_refspace, trial_refspace, test_qrule_d, trial_qrule_d)
     end
 
     return nothing
@@ -590,6 +580,24 @@ end
 # BEAST assemble function for GPU threading
 #=======================================#
 
+"""
+    assemble(operator, test_functions, trial_functions; threading=:gpu, quadstrat, tilingstrat, verbose)
+
+GPU backend for the full (dense) operator matrix. Reached from the BEAST public
+API `assemble(op, X, Y; threading=:gpu)`, which dispatches here via
+`assemble!(…, Threading{:gpu})`.
+
+Both element grids are uploaded once and optionally split into tiles
+(`tilingstrat`, see [`TilingStrategy`](@ref)) that are assembled concurrently on
+several CUDA streams — this bounds peak GPU memory for large problems. Each
+element pair is classified (regular / common vertex|edge|face) and integrated
+with double-numerical or Sauter–Schwab quadrature, then projected to dofs and
+stored.
+
+`quadstrat` must be a `DoubleNumSauterQstrat` (regular far + Sauter near); the
+BEAST default `DoubleNumWiltonSauterQStrat` is not supported (no GPU Wilton
+path). See the extension README for the full support matrix and limitations.
+"""
 function assemble!(operator::Operator, test_functions::Space, trial_functions::Space,
     store, threading::Type{Threading{:gpu}};
     quadstrat=defaultquadstrat, tilingstrat=TilingStrategy(EqualTiling(1), EqualTiling(1)),
@@ -698,11 +706,16 @@ function assemble!(operator::Operator, test_functions::Space, trial_functions::S
     finish!(pbar)
 end
 
-function assemble_primer_gpu(operator::Operator, functions::Space, quadrule; verbose=false)
-    T = scalartype(operator, functions)
-    return assemble_primer_gpu(operator, functions, quadrule, T; verbose=verbose)
-end
+"""
+    assemble_primer_gpu(operator, functions, quadrule, ::Type{T}; verbose)
+        -> (l2g_map, ((elements_d, assembly_d), (quadrule_d, shapes_d), activecells))
 
+Per-space GPU setup shared by both GPU paths. Uploads the element grid and the
+dof→(element, shape) assembly matrix, builds the device quadrature rule, and
+precomputes the reference-space shape-function values ([`shapetype`](@ref)) at
+every quadrature point. Called once per (sub)space by the full [`assemble!`](@ref)
+and, via `GPUSpaceAssemblyData`, by [`gpu_blockassembler`](@ref).
+"""
 function assemble_primer_gpu(operator::Operator, functions::Space, quadrule, ::Type{T}; verbose=false) where T
 
     space = refspace(functions)
@@ -759,7 +772,7 @@ function assemblechunk_body_gpu_device!(matrix_d, zlocal_d, quadstrat_d, singula
     trial_space, trial_el_d::CuArray, trial_ad_d::CuSparseMatrixCSC,
     qd_d)
 
-    (quadrule_d, test_shapes_d), (quadrule_d, trial_shapes_d), cvrule_d, cerule_d, cfrule_d = qd_d
+    (test_quadrule_d, test_shapes_d), (trial_quadrule_d, trial_shapes_d), cvrule_d, cerule_d, cfrule_d = qd_d
 
     fill!(quadstrat_d, 0)
     fill!(zlocal_d, zero(eltype(zlocal_d)))
@@ -770,7 +783,7 @@ function assemblechunk_body_gpu_device!(matrix_d, zlocal_d, quadstrat_d, singula
         singularity_map_d=singularity_map_d)
 
     launch_gpu_kernel!(gpu_momintegral_doublenum!, zlocal_d, operator, numpairs[1], view(quadstrat_d, :, 1),
-        test_el_d, trial_el_d, test_shapes_d, trial_shapes_d, test_space, trial_space, quadrule_d;
+        test_el_d, trial_el_d, test_shapes_d, trial_shapes_d, test_space, trial_space, test_quadrule_d, trial_quadrule_d;
         gpu_blocksize=(256), problem_size=(numpairs[1]))
 
     strategy = CommonVertex(cvrule_d)
@@ -793,34 +806,13 @@ function assemblechunk_body_gpu_device!(matrix_d, zlocal_d, quadstrat_d, singula
     return matrix_d
 end
 
-function assemblechunk_body_gpu_device_far!(matrix_d, zlocal_d, trial_proj_d,
-    operator::IntegralOperator,
-    test_space, test_el_d::CuArray, test_ad_d::CuSparseMatrixCSC,
-    trial_space, trial_el_d::CuArray, trial_ad_d::CuSparseMatrixCSC,
-    qd_d)
-
-    (quadrule_d, test_shapes_d), (quadrule_d, trial_shapes_d) = qd_d
-
-    fill!(zlocal_d, zero(eltype(zlocal_d)))
-    fill!(matrix_d, zero(eltype(matrix_d)))
-
-    npairs = length(test_el_d) * length(trial_el_d)
-    launch_gpu_kernel!(gpu_momintegral_doublenum_allpairs!, zlocal_d, operator, npairs,
-        test_el_d, trial_el_d, test_shapes_d, trial_shapes_d, test_space, trial_space, quadrule_d;
-        gpu_blocksize=(256), problem_size=(npairs))
-
-    build_matrix!(matrix_d, zlocal_d, test_ad_d, trial_ad_d, trial_proj_d)
-
-    return matrix_d
-end
-
 function assemblechunk_body_gpu_device_indexed!(matrix_d, zlocal_d, quadstrat_d, singularity_map_d, trial_proj_d,
     operator::IntegralOperator,
     test_space, test_el_d::CuArray, test_ids_d, test_ad_d::CuSparseMatrixCSC,
     trial_space, trial_el_d::CuArray, trial_ids_d, trial_ad_d::CuSparseMatrixCSC,
     qd_d)
 
-    (quadrule_d, test_shapes_d), (quadrule_d, trial_shapes_d), cvrule_d, cerule_d, cfrule_d = qd_d
+    (test_quadrule_d, test_shapes_d), (trial_quadrule_d, trial_shapes_d), cvrule_d, cerule_d, cfrule_d = qd_d
 
     fill!(quadstrat_d, 0)
     fill!(zlocal_d, zero(eltype(zlocal_d)))
@@ -831,7 +823,7 @@ function assemblechunk_body_gpu_device_indexed!(matrix_d, zlocal_d, quadstrat_d,
         singularity_map_d=singularity_map_d)
 
     launch_gpu_kernel!(gpu_momintegral_doublenum_indexed!, zlocal_d, operator, numpairs[1], view(quadstrat_d, :, 1),
-        test_el_d, test_ids_d, trial_el_d, trial_ids_d, test_shapes_d, trial_shapes_d, test_space, trial_space, quadrule_d;
+        test_el_d, test_ids_d, trial_el_d, trial_ids_d, test_shapes_d, trial_shapes_d, test_space, trial_space, test_quadrule_d, trial_quadrule_d;
         gpu_blocksize=(256), problem_size=(numpairs[1]))
 
     strategy = CommonVertex(cvrule_d)
@@ -860,7 +852,7 @@ function assemblechunk_body_gpu_device_far_indexed!(matrix_d, zlocal_d, trial_pr
     trial_space, trial_el_d::CuArray, trial_ids_d, trial_ad_d::CuSparseMatrixCSC,
     qd_d)
 
-    (quadrule_d, test_shapes_d), (quadrule_d, trial_shapes_d) = qd_d
+    (test_quadrule_d, test_shapes_d), (trial_quadrule_d, trial_shapes_d) = qd_d
 
     fill!(zlocal_d, zero(eltype(zlocal_d)))
     fill!(matrix_d, zero(eltype(matrix_d)))
@@ -868,7 +860,7 @@ function assemblechunk_body_gpu_device_far_indexed!(matrix_d, zlocal_d, trial_pr
     npairs = length(test_ids_d) * length(trial_ids_d)
     launch_gpu_kernel!(gpu_momintegral_doublenum_allpairs_indexed!, zlocal_d, operator, npairs,
         test_el_d, test_ids_d, trial_el_d, trial_ids_d, test_shapes_d, trial_shapes_d,
-        test_space, trial_space, quadrule_d;
+        test_space, trial_space, test_quadrule_d, trial_quadrule_d;
         gpu_blocksize=(256), problem_size=(npairs))
 
     build_matrix!(matrix_d, zlocal_d, test_ad_d, trial_ad_d, trial_proj_d)

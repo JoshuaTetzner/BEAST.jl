@@ -2,6 +2,7 @@ using CUDA
 using BEAST
 using CompScienceMeshes
 using LinearAlgebra
+using SparseArrays
 using ParallelKMeans
 using H2Trees
 using AdaptiveCrossApproximation
@@ -45,20 +46,53 @@ blktree = BlockTree(tree, tree)
 
 values, nearvalues = AdaptiveCrossApproximation.nearinteractions(blktree)
 
-blkassembler = blockassembler(op, space, space);
+blkassembler = blockassembler(op, space, space; quadstrat=qstrat);
 gpublkassembler = ext.gpu_blockassembler(op, space, space; quadstrat=qstrat);
 ##
 values
 nearvalues
 ##
-@time begin
-    blks = [zeros(
-        scalartype(op),
-        length(values[i]),
-        length(nearvalues[i])
-    ) for i in eachindex(values)]
+println("near blocks  = ", length(values))
 
-    for i in eachindex(values)
-        blkassembler(blks[i], values[i], nearvalues[i])
-    end
+# element-pair mask: which (test_el, trial_el) integrals the near-field needs
+mask = ext.nearblock_element_mask(space, values, space, nearvalues)
+println("element mask = ", size(mask, 1), " x ", size(mask, 2),
+    ", nnz = ", nnz(mask),
+    " (", round(100 * nnz(mask) / length(mask); digits=4), "% dense)")
+
+# --- CPU block assembly (reference) ---------------------------------------
+cpu_blks = [zeros(scalartype(op), length(values[i]), length(nearvalues[i]))
+            for i in eachindex(values)]
+
+@time for i in eachindex(values)
+    blk = cpu_blks[i]
+    store(v, m, n) = (@inbounds blk[m, n] += v)
+    blkassembler(values[i], nearvalues[i], store)
 end
+
+##
+# --- GPU block assembly (device-allocated blocks) -------------------------
+gpu_blks = [CUDA.zeros(scalartype(op), length(values[i]), length(nearvalues[i]))
+            for i in eachindex(values)]
+
+# warmup: first call compiles the kernels
+gpublkassembler(gpu_blks[1], values[1], nearvalues[1])
+CUDA.synchronize()
+
+CUDA.@time begin
+    for i in eachindex(values)
+        gpublkassembler(gpu_blks[i], values[i], nearvalues[i])
+    end
+    CUDA.synchronize()
+end
+
+##
+# --- correctness: GPU vs CPU ----------------------------------------------
+maxrel = 0.0
+for i in eachindex(values)
+    gpu_blk = Array(gpu_blks[i])
+    denom = norm(cpu_blks[i])
+    rel = iszero(denom) ? norm(gpu_blk - cpu_blks[i]) : norm(gpu_blk - cpu_blks[i]) / denom
+    global maxrel = max(maxrel, rel)
+end
+println("max relative block error (GPU vs CPU) = ", maxrel)

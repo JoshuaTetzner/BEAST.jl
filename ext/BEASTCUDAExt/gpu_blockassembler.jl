@@ -1,3 +1,13 @@
+"""
+    GPUAssembleblockbodyFunctor
+
+Callable produced by [`gpu_blockassembler`](@ref). Holds the GPU-resident
+per-space assembly data (elements, dof→shape matrices, precomputed shape values)
+and quadrature rules for one `(operator, test space, trial space, device)`, and
+assembles arbitrary dof sub-blocks when called — see its call method,
+`(f::GPUAssembleblockbodyFunctor)(block_d, testids, trialids)`. The same functor
+also backs the batched [`gpu_sparse_blockassemble`](@ref).
+"""
 struct GPUAssembleblockbodyFunctor{B,T1,T2,T3,T4,T5,T6}
     biop::B
     tfs::T1
@@ -121,6 +131,46 @@ function _active_element_ids(space, ids)
     return unique!(sort!(element_ids))
 end
 
+"""
+    nearblock_element_mask(tfs, values, bfs, nearvalues) -> SparseMatrixCSC{Bool}
+
+Build a boolean element-pair mask from the per-block dof index lists `values`
+(test) and `nearvalues` (trial), as produced for the near-field block loop.
+
+Entry `[p, q]` is `true` iff some block couples a test dof supported on test
+element `p` with a trial dof supported on trial element `q`, i.e. the element
+pair `(p, q)` has to be integrated on the GPU. Rows index test elements
+(`numcells(geometry(tfs))`), columns trial elements (`numcells(geometry(bfs))`).
+Pairs shared between blocks are merged into a single `true`.
+
+The nonzeros of the returned mask are the element-pair work list for a batched
+GPU assembly: `findnz(mask)` yields the `(p, q)` pairs to integrate once.
+
+Note: this is a CPU utility; [`gpu_sparse_blockassemble`](@ref) builds and
+deduplicates its element-pair list directly on the GPU and does not need it. It
+is kept for experimentation / inspecting the work list.
+"""
+function nearblock_element_mask(tfs::Space, values, bfs::Space, nearvalues)
+    @assert length(values) == length(nearvalues) "values and nearvalues must align"
+
+    rows = Int[]
+    cols = Int[]
+    for i in eachindex(values)
+        test_els = _active_element_ids(tfs, values[i])
+        trial_els = _active_element_ids(bfs, nearvalues[i])
+        for q in trial_els
+            for p in test_els
+                push!(rows, p)
+                push!(cols, q)
+            end
+        end
+    end
+
+    n_test_el = numcells(geometry(tfs))
+    n_trial_el = numcells(geometry(bfs))
+    return sparse(rows, cols, trues(length(rows)), n_test_el, n_trial_el, |)
+end
+
 function _gpu_block_request(tfs, testids, bfs, trialids)
     testids_vec = collect(Int, testids)
     trialids_vec = collect(Int, trialids)
@@ -231,6 +281,23 @@ function _prepare_far_workspace!(workspace::GPUBlockWorkspace,
     return matrix_d, zlocal_d, trial_proj_d
 end
 
+"""
+    gpu_blockassembler(biop, tfs, bfs; quadstrat, device, verbose) -> GPUAssembleblockbodyFunctor
+
+GPU counterpart of `BEAST.blockassembler`: build a reusable per-block assembler
+for `biop` between test space `tfs` and trial space `bfs` on `device`. Call this
+once; the returned [`GPUAssembleblockbodyFunctor`](@ref) is then invoked as
+`f(block_d, testids, trialids)` to fill device sub-blocks (see its call method).
+
+Per-space setup (element upload, dof→shape assembly matrices, precomputed shape
+values) happens here and is reused across all calls and by the batched
+[`gpu_sparse_blockassemble`](@ref). This is the entry point used both for the
+block-wise scenario and as the building block of the sparse near-interaction
+assembler of fast methods.
+
+`quadstrat` must be `DoubleNumSauterQstrat` (Sauter-near capable) or, for far
+blocks only, `DoubleNumQStrat`; conforming test/trial meshes only.
+"""
 function gpu_blockassembler(biop::IntegralOperator, tfs::Space, bfs::Space;
     quadstrat=defaultquadstrat,
     device=CUDA.deviceid(CUDA.device()),
@@ -250,6 +317,18 @@ function gpu_blockassembler(biop::IntegralOperator, tfs::Space, bfs::Space;
         singularrules, GPUBlockWorkspace(), Int(device), verbose)
 end
 
+"""
+    (f::GPUAssembleblockbodyFunctor)(block_d, testids, trialids) -> block_d
+
+Assemble the `testids × trialids` sub-block of the operator into the preallocated
+device matrix `block_d` (a `CuMatrix` or a `@view` of one) and return it. This is
+the call a fast method's block loop makes per (near) interaction, on the functor
+returned by [`gpu_blockassembler`](@ref).
+
+Far blocks (functor built with `DoubleNumQStrat`, no singular rules) take the
+double-numerical path; otherwise the Sauter–Schwab near path runs. Empty
+`testids`/`trialids` zero the block and return.
+"""
 function (f::GPUAssembleblockbodyFunctor)(block_d::AbstractMatrix, testids, trialids)
     CUDA.device!(f.device)
 

@@ -103,10 +103,14 @@ include("test_evie_dvie.jl")
 
 include("test_coloring.jl")
 
+# GPU tests (tagged `:gpu`, living in test/gpu/) are opt-in: they need a CUDA
+# device and `CUDA` in the active environment. Enable them with BEAST_TEST_GPU=1.
+const RUN_GPU_TESTS = get(ENV, "BEAST_TEST_GPU", "") != ""
+
 @run_package_tests filter = ti -> begin
     # @show ti.tags
-    # @show isempty(intersect([:example, :diagnostics], ti.tags))
-    isempty(intersect([:example, :diagnostics], ti.tags))
+    excluded = RUN_GPU_TESTS ? [:example, :diagnostics] : [:example, :diagnostics, :gpu]
+    isempty(intersect(excluded, ti.tags))
 end verbose = true
 
 try

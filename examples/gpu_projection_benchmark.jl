@@ -71,7 +71,7 @@ function time_far_call(ext, gpu_asm, block_d, test_ids, trial_ids)
         CUDA.synchronize()
     end
 
-    (quadrule_d, test_shapes_d), (_, trial_shapes_d) = (test_qd, trial_qd)
+    (test_quadrule_d, test_shapes_d), (trial_quadrule_d, trial_shapes_d) = (test_qd, trial_qd)
     fill_time = @elapsed begin
         fill!(zlocal_d, zero(eltype(zlocal_d)))
         fill!(matrix_d, zero(eltype(matrix_d)))
@@ -82,7 +82,7 @@ function time_far_call(ext, gpu_asm, block_d, test_ids, trial_ids)
         npairs = length(test_el_ids_d) * length(trial_el_ids_d)
         ext.launch_gpu_kernel!(ext.gpu_momintegral_doublenum_allpairs_indexed!, zlocal_d, gpu_asm.biop, npairs,
             test_el_d, test_el_ids_d, trial_el_d, trial_el_ids_d, test_shapes_d, trial_shapes_d,
-            refspace(gpu_asm.tfs), refspace(gpu_asm.bfs), quadrule_d;
+            refspace(gpu_asm.tfs), refspace(gpu_asm.bfs), test_quadrule_d, trial_quadrule_d;
             gpu_blocksize=(256), problem_size=npairs)
         CUDA.synchronize()
     end

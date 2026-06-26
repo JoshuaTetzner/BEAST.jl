@@ -1,3 +1,10 @@
+"""
+    launch_gpu_kernel!(kernel, args...; gpu_blocksize, problem_size)
+
+Internal helper used by every kernel launch in the extension: run
+`kernel(args...)` with a block/grid sized so the threads cover `problem_size`
+(a scalar or tuple matching `gpu_blocksize`). No-op when `problem_size == 0`.
+"""
 function launch_gpu_kernel!(gpu_kernel, args...; gpu_blocksize=(32, 32), problem_size)
     if problem_size == 0
         return
