@@ -14,6 +14,16 @@ struct MWSingleLayer3D{T,U} <: MaxwellOperator3D{T,U}
   β::U
 end
 
+struct MWStaticExtractedHyperSingular{T,U} <: MaxwellOperator3D{T,U}
+  gamma::T
+  β::U
+end
+
+# Maxwell hypersingular operator, with its static kernel removed, can be assembled using basis functions other than div-conforming ones
+MWStaticExtractedHyperSingular(gamma) = MWStaticExtractedHyperSingular(gamma, -1/(gamma))
+
+defaultquadstrat(op::MWStaticExtractedHyperSingular, tfs::RTRefSpace, bfs::RTRefSpace) = DoubleNumSauterQstrat(6,7,5,5,4,3)
+
 gamma(op::MWSingleLayer3D{Val{0}, U}) where {U} = zero(U)
 
 scalartype(op::MWSingleLayer3D{T,U}) where {T,U} = promote_type(T,U)
@@ -134,6 +144,44 @@ function (igd::Integrand{<:MWSingleLayer3DReg})(x,y,f,g)
 
     _integrands(f,g) do fi,gj
         αG * dot(fi.value, gj.value) + βG * dot(fi.divergence, gj.divergence)
+    end
+end
+
+# MWStaticExtractedHyperSingular operator, discretized and tested by RT. Integration-by-parts is performed
+function (igd::Integrand{<:MWStaticExtractedHyperSingular, <:RTRefSpace, <:RTRefSpace})(x,y,f,g)
+    β = igd.operator.β
+    γ = igd.operator.gamma
+
+    r = cartesian(x) - cartesian(y)
+    R = norm(r)
+    iR = 1/R
+    γR = γ*R
+
+    green = expm1(-γR) * (i4pi * iR) + γ * i4pi
+    βG = β * green
+
+    _integrands(f,g) do fi,gj
+        βG * dot(fi.divergence, gj.divergence)
+    end
+end
+
+# MWStaticExtractedHyperSingular operator, discretized by RT and tested by other functions. Integration-by-parts is not performed. Instead, grad of regularized Green's function is used
+function (igd::Integrand{<:MWStaticExtractedHyperSingular, <:RefSpace, <:RTRefSpace})(x,y,f,g)
+    β = igd.operator.β
+    γ = igd.operator.gamma
+
+    r = cartesian(x) - cartesian(y)
+    R = norm(r)
+    iR = 1/R
+    γR = γ*R
+
+    gradgreen = -(expm1(-γR) * (1 + γR) + γR) * (i4pi * iR^3) * r
+
+    # Minus sign is because integration-by-part is not performed
+    βgG = -β * gradgreen
+
+    _integrands(f,g) do fi,gj
+        dot(fi.value, βgG*gj.divergence)
     end
 end
 
