@@ -71,6 +71,8 @@ include("test_hh2d_nearfield.jl")
 
 include("test_wiltonints.jl")
 include("test_sauterschwabints.jl")
+include("test_efie_precision.jl")
+include("test_efie_far_precision.jl")
 include("test_hh3dints.jl")
 include("test_ss_nested_meshes.jl")
 include("test_nitsche.jl")

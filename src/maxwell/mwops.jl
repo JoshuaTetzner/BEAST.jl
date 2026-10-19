@@ -111,6 +111,29 @@ defaultquadstrat(op::MWDoubleLayer3DLoop, tfs::RTRefSpace, bfs::RTRefSpace) = Do
 ################################################################################
 
 const i4pi = 1 / (4pi)
+
+# Keep the EFIE formula and quadrature unchanged, but do not round its large
+# triangle contributions before their signed sum in single-precision far blocks.
+_assemblytype(::MWSingleLayer3D, ::Type{T}, ::DoubleNumQStrat) where {T} =
+    promote_type(T,Float64)
+@inline _workweighttype(::Integrand{<:MWSingleLayer3D}, ::Type{T}, ::Type) where {T} = real(T)
+
+@inline _efiewiden(x::Number) = convert(promote_type(typeof(x),Float64),x)
+@inline _efiewiden(x) = _efiewiden.(x)
+@inline function _workintegrand(igd::Integrand{<:MWSingleLayer3D},x,y,f,g,
+    ::Type{T}) where {T<:Union{Float64,ComplexF64}}
+    op = igd.operator
+    r = _efiewiden(cartesian(x))-_efiewiden(cartesian(y))
+    R = norm(r)
+    iR = 1/R
+    green = exp(-_efiewiden(op.gamma)*R)*(i4pi*iR)
+    αG,βG = _efiewiden(op.α)*green,_efiewiden(op.β)*green
+    _integrands(f,g) do fi,gj
+        αG*dot(fi.value,gj.value)+
+            βG*dot(_efiewiden(fi.divergence),_efiewiden(gj.divergence))
+    end
+end
+
 function (igd::Integrand{<:MWSingleLayer3D})(x,y,f,g)
     α = igd.operator.α
     β = igd.operator.β
@@ -119,7 +142,11 @@ function (igd::Integrand{<:MWSingleLayer3D})(x,y,f,g)
     r = cartesian(x) - cartesian(y)
     R = norm(r)
     iR = 1 / R
-    green = exp(-γ*R)*(i4pi*iR)
+    # Keep single-precision geometry/operators in single precision. The global
+    # i4pi constant is Float64; mixed-precision inputs retain their promoted type.
+    Rtype = real(promote_type(scalartype(igd.operator), typeof(R)))
+    inverse4pi = Rtype(i4pi)
+    green = exp(-γ*R)*(inverse4pi*iR)
 
     αG = α * green
     βG = β * green

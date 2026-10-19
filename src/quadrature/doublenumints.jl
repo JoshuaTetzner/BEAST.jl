@@ -3,6 +3,9 @@ struct DoubleQuadRule{P,Q}
   inner_quad_points::Q
 end
 
+@inline _workintegrand(igd, x, y, f, g, ::Type) = igd(x,y,f,g)
+@inline _workweighttype(igd, ::Type, ::Type{W}) where {W} = W
+
 
 """
 integrate!(biop, tshs, bshs, tcell, bcell, interactions, strat)
@@ -29,9 +32,10 @@ function integrate!(biop,
             N = length(bvals)
             jy = wimp.weight
 
-            j = jx * jy
+            W = _workweighttype(igd,eltype(z),promote_type(typeof(jx),typeof(jy)))
+            j = W(jx) * W(jy)
 
-            z1 = j * igd(tgeo, bgeo, tvals, bvals)
+            z1 = j * _workintegrand(igd,tgeo,bgeo,tvals,bvals,eltype(z))
             for n in 1:N
                 for m in 1:M
                     z[m,n] += z1[m,n]

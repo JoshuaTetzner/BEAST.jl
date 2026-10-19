@@ -264,6 +264,13 @@ function assemble!(operator::Operator, testfunctions::Space, trialfunctions::Spa
 
     pbar = progressbar(length(testelements) * length(trialelements), true)
 
+    T = scalartype(operator,testfunctions,trialfunctions)
+    W = _assemblytype(operator,T,qs)
+    originalstore = store
+    if W !== T
+        store = WideAssemblyStore(zeros(W,numfunctions(testfunctions),numfunctions(trialfunctions)),nothing)
+    end
+
     for (i, coloredtestelements) in enumerate(testelementcolors)
         testad1 = AssemblyData(testad.data[:,:,coloredtestelements])
         for (j, coloredtrialelements) in enumerate(trialelementcolors)            
@@ -279,6 +286,7 @@ function assemble!(operator::Operator, testfunctions::Space, trialfunctions::Spa
             next!(pbar; step = length(testelementcolors[i]) * length(trialelementcolors[j]))
     end end 
     finish!(pbar)
+    W !== T && _flushassembly!(originalstore,store,T)
 end
 
 

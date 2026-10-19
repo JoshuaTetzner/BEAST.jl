@@ -28,6 +28,32 @@ for `I` and `J` permutations of `1:numfunctions(test_space)` and
 """
 function blockassembler end
 
+# Storage precision and integration precision need not coincide. Most operators
+# use the storage type; cancellation-sensitive quadrature may specialize this.
+_assemblytype(op, ::Type{T}, quadstrat) where {T} = T
+
+struct WideAssemblyStore{M,L}
+    matrix::M
+    guard::L
+end
+function (store::WideAssemblyStore)(value, m, n)
+    if store.guard === nothing
+        store.matrix[m,n] += value
+    else
+        lock(store.guard) do
+            store.matrix[m,n] += value
+        end
+    end
+    return nothing
+end
+_assemblysize(ad::AssemblyData) = maximum(first, ad.data; init=0)
+function _flushassembly!(store, wide::WideAssemblyStore, ::Type{T}) where {T}
+    for n in axes(wide.matrix,2), m in axes(wide.matrix,1)
+        store(T(wide.matrix[m,n]),m,n)
+    end
+    return nothing
+end
+
 """
     AssemblyScratch{Z,T,Q}
 
@@ -148,7 +174,7 @@ function assemblyscratch(
 )
     return AssemblyScratch(
         zeros(
-            scalartype(biop, test_space, trial_space),
+            _assemblytype(biop, scalartype(biop, test_space, trial_space), quadstrat),
             size(test_assembly_data.data, 2),
             size(trial_assembly_data.data, 2),
         ),
@@ -357,6 +383,18 @@ function assemblechunk_body!(biop, test_space, trial_space,
     quadstrat,
     scheduler=:serial,
     scratchsource=NewAssemblyScratch())
+
+    T = scalartype(biop, test_space, trial_space)
+    W = _assemblytype(biop, T, quadstrat)
+    if W !== T && !(store isa WideAssemblyStore)
+        wide = WideAssemblyStore(zeros(W, _assemblysize(test_assembly_data),
+            _assemblysize(trial_assembly_data)), scheduler === :serial ? nothing : ReentrantLock())
+        assemblechunk_body!(biop, test_space, trial_space,
+            test_elements, test_element_ptrs, test_assembly_data, active_test_els,
+            trial_elements, trial_element_ptrs, trial_assembly_data, active_trial_els,
+            qd, wide; quadstrat, scheduler, scratchsource)
+        return _flushassembly!(store, wide, T)
+    end
 
     num_tshapes = size(test_assembly_data.data,2)
     num_bshapes = size(trial_assembly_data.data,2)
@@ -851,6 +889,16 @@ function assemblerow_body!(biop,
     trial_assembly_data, trial_functions, trial_elements, trial_shapes,
     zlocal, quadrature_data, store; quadstrat)
 
+    W = _assemblytype(biop, eltype(zlocal), quadstrat)
+    if W !== eltype(zlocal)
+        wide = WideAssemblyStore(zeros(W,1,_assemblysize(trial_assembly_data)),nothing)
+        assemblerow_body!(biop,
+            test_functions, test_elements, test_shapes,
+            trial_assembly_data, trial_functions, trial_elements, trial_shapes,
+            zeros(W,size(zlocal)), quadrature_data, wide; quadstrat)
+        return _flushassembly!(store,wide,eltype(zlocal))
+    end
+
     test_function = test_functions.fns[1]
     qbuffer = quadraturebuffer(quadstrat, test_functions, trial_functions)
     qaction = ApplyIntegrate(qbuffer)
@@ -902,6 +950,16 @@ function assemblecol_body!(biop,
     test_assembly_data, test_functions, test_elements, test_shapes,
     trial_functions, trial_elements, trial_shapes,
     zlocal, quadrature_data, store; quadstrat)
+
+    W = _assemblytype(biop, eltype(zlocal), quadstrat)
+    if W !== eltype(zlocal)
+        wide = WideAssemblyStore(zeros(W,_assemblysize(test_assembly_data),1),nothing)
+        assemblecol_body!(biop,
+            test_assembly_data, test_functions, test_elements, test_shapes,
+            trial_functions, trial_elements, trial_shapes,
+            zeros(W,size(zlocal)), quadrature_data, wide; quadstrat)
+        return _flushassembly!(store,wide,eltype(zlocal))
+    end
 
     trial_function = trial_functions.fns[1]
     qbuffer = quadraturebuffer(quadstrat, test_functions, trial_functions)
